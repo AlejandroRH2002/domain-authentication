@@ -1,24 +1,24 @@
 # Moodle Local Domain Authentication
 
-Plugin local para Moodle que controla el uso de dominios de correo electrónico en la creación y edición de usuarios.
+Plugin local para Moodle que controla el uso de dominios de correo electrónico en la creación y edición de usuarios, aplicando reglas de validación dinámicas y visibilidad condicional de campos personalizados.
 
-El plugin permite registrar usuarios con dominios institucionales autorizados sin requisitos adicionales. Cuando se utiliza un dominio externo, Moodle exige una **justificación** y una **fecha de expiración futura** antes de permitir guardar al usuario.
+El plugin permite registrar usuarios con dominios institucionales autorizados sin requisitos adicionales. Cuando se utiliza un dominio externo, Moodle exige una **justificación** y una **fecha de expiración futura** antes de permitir guardar al usuario. Los campos de justificación y fecha se ocultan automáticamente para dominios internos, y se limpian para evitar datos residuales.
 
 ## Características
 
-* Validación del dominio del correo electrónico.
+* Validación del dominio del correo electrónico en el servidor.
 * Catálogo de dominios institucionales autorizados.
-* Permite automáticamente los dominios institucionales.
-* Detecta dominios de correo externos.
-* Exige una justificación para dominios externos.
-* Exige una fecha de expiración válida y futura.
-* Bloquea el guardado cuando los requisitos no se cumplen.
-* Compatible con Moodle 4.x y 5.x.
+* Visibilidad condicional de campos personalizados mediante JavaScript (AMD).
+* Limpieza de valores en cliente y servidor para dominios internos.
+* Exige una justificación válida (no vacía y no "Case 1") para dominios externos.
+* Exige una fecha de expiración válida y futura para dominios externos.
+* Bloquea el guardado cuando los requisitos no se cumplen, mostrando errores asociados a cada campo.
+* Compatible con Moodle 4.2 y superiores.
 * Soporte para inglés y español.
 
 ## Dominios autorizados
 
-La configuración inicial incluye los siguientes dominios:
+La configuración inicial incluye los siguientes dominios considerados institucionales (sin restricciones):
 
 ```text
 uady.mx
@@ -36,15 +36,21 @@ lib.php
 Dentro de:
 
 ```php
-$authorizeddomains = array(
+$authorizeddomains = [
     'uady.mx',
     'fmat.uady.mx',
     'alumnos.uady.mx',
     'correo.uady.mx',
-);
+];
 ```
 
-Puedes modificar esta lista de acuerdo con los dominios institucionales que necesite tu instalación de Moodle.
+Y también en el archivo JavaScript:
+
+```text
+amd/src/form.js
+```
+
+Para mantener el comportamiento coherente, es necesario actualizar la lista en ambos archivos.
 
 ## Campos de perfil requeridos
 
@@ -64,6 +70,8 @@ La clave utilizada por el formulario es:
 profile_field_justification
 ```
 
+El campo debería ser de tipo **menú desplegable (select)**. El plugin añade automáticamente una opción vacía al inicio y establece el valor por defecto a vacío.
+
 ### Fecha de expiración
 
 Debe existir un campo de perfil personalizado con:
@@ -77,6 +85,8 @@ La clave utilizada por el formulario es:
 ```text
 profile_field_expiration_date
 ```
+
+El campo debería ser de tipo **fecha**.
 
 > Es importante utilizar exactamente estos *shortnames*. El nombre visible del campo puede ser diferente.
 
@@ -92,7 +102,7 @@ usuario@fmat.uady.mx
 usuario@alumnos.uady.mx
 ```
 
-El usuario puede guardarse sin proporcionar información adicional.
+El usuario puede guardarse sin proporcionar información adicional. Los campos personalizados se ocultan y se limpian automáticamente. En el servidor, se forzan a vacío para eliminar cualquier dato residual.
 
 ### Dominio externo
 
@@ -106,11 +116,11 @@ usuario@empresa.com
 
 El plugin exige:
 
-1. Una justificación no vacía.
+1. Una justificación no vacía y que no sea "Case 1" ni "1".
 2. Una fecha de expiración válida.
 3. La fecha de expiración debe ser posterior a la fecha y hora actuales.
 
-Si alguno de estos requisitos no se cumple, Moodle mostrará un error y bloqueará el guardado.
+Si alguno de estos requisitos no se cumple, Moodle mostrará un error junto al campo correspondiente y bloqueará el guardado.
 
 ## Estructura del plugin
 
@@ -118,11 +128,14 @@ Si alguno de estos requisitos no se cumple, Moodle mostrará un error y bloquear
 domainauthentication/
 ├── version.php
 ├── lib.php
-└── lang/
-    ├── en/
-    │   └── local_domainauthentication.php
-    └── es/
-        └── local_domainauthentication.php
+├── lang/
+│   ├── en/
+│   │   └── local_domainauthentication.php
+│   └── es/
+│       └── local_domainauthentication.php
+└── amd/
+    └── src/
+        └── form.js
 ```
 
 ## Información del plugin
@@ -131,8 +144,8 @@ domainauthentication/
 | --------------- | ---------------------------- |
 | Nombre          | Domain Authentication        |
 | Componente      | `local_domainauthentication` |
-| Versión         | `2026090802`                 |
-| Requiere Moodle | `2022112800`                 |
+| Versión         | `2026090902`                 |
+| Requiere Moodle | `2022112800` (Moodle 4.2)    |
 | Tipo            | Local plugin                 |
 | Licencia        | GPL v3 or later              |
 
@@ -175,14 +188,17 @@ moodle/
     └── domainauthentication/
         ├── version.php
         ├── lib.php
-        └── lang/
-            ├── en/
-            │   └── local_domainauthentication.php
-            └── es/
-                └── local_domainauthentication.php
+        ├── lang/
+        │   ├── en/
+        │   │   └── local_domainauthentication.php
+        │   └── es/
+        │       └── local_domainauthentication.php
+        └── amd/
+            └── src/
+                └── form.js
 ```
 
-Posteriormente acceder a Moodle como administrador para ejecutar la actualización del sitio.
+Posteriormente acceder a Moodle como administrador para ejecutar la actualización del sitio (o purgar cachés).
 
 ## Configuración de los campos personalizados
 
@@ -201,62 +217,79 @@ Crear un campo para la justificación con:
 Short name: justification
 ```
 
-Y otro para la fecha:
+Tipo recomendado: menú desplegable (select).
+
+Crear otro campo para la fecha con:
 
 ```text
 Short name: expiration_date
 ```
 
-El tipo de campo recomendado para `expiration_date` es un campo de fecha.
+Tipo recomendado: fecha.
 
 ## Funcionamiento
 
-El flujo de validación es:
+El flujo de validación combina lógica de cliente (JavaScript) y servidor (PHP):
+
+1. Al cargar el formulario, JavaScript comprueba el dominio del email y muestra/oculta los campos dependientes.
+2. Cuando el usuario cambia el email, los campos se actualizan en tiempo real y se limpian si son ocultados.
+3. Al enviar el formulario:
+   - Si el dominio es interno, el servidor fuerza los campos a vacío y no aplica validación.
+   - Si el dominio es externo, el servidor valida justificación y fecha. Si falla, se añaden errores al formulario y se detiene el guardado.
+
+El siguiente diagrama resume el flujo:
 
 ```text
 Usuario introduce correo
         │
         ▼
-¿El correo tiene un dominio válido?
+JavaScript detecta dominio
         │
         ▼
-Extraer dominio
-        │
-        ▼
-¿Es un dominio institucional?
+¿Es dominio institucional?
        / \
      Sí   No
      │     │
      │     ▼
-     │  ¿Justificación?
+     │  Muestra campos
+     │  (justificación y fecha)
      │     │
-     │     ▼
-     │  ¿Fecha válida?
-     │     │
-     │     ▼
-     │  ¿Fecha futura?
-     │    / \
-     │  Sí   No
-     │  │     │
-     ▼  ▼     ▼
-   Permitir  Bloquear
+     ▼     ▼
+Oculta y limpia  Envía formulario
+campos            │
+                  ▼
+              Validación servidor
+                  │
+          ¿Dominio externo?
+            /         \
+          Sí           No
+          │             │
+          ▼             ▼
+   Valida campos  Fuerza campos a vacío
+   (justif. y     y permite guardado
+   fecha)
+          │
+    ¿Cumple?
+     /    \
+   Sí      No
+   │        │
+   ▼        ▼
+Permite   Muestra errores
+guardado  y bloquea
 ```
 
 ## Mensajes de error
 
-Para dominios externos, el plugin puede mostrar mensajes como:
+El plugin utiliza mensajes de error específicos para cada campo, definidos en los archivos de idioma:
 
-```text
-El dominio del correo electrónico es externo.
-Es obligatorio indicar una justificación.
-```
+- `errorjustification`: "La justificación es obligatoria y no puede ser 'Case 1' para correos externos."
+- `errorexpiration`: "La fecha de expiración debe ser una fecha futura."
+- `errorexpirationempty`: "Debe configurar una fecha de expiración para correos externos."
 
-o:
+También se proporcionan textos de ayuda en los campos:
 
-```text
-El dominio del correo electrónico es externo.
-Es obligatorio indicar una fecha de expiración válida y futura.
-```
+- `justificationhelp`: "Obligatorio solo para dominios externos."
+- `expirationhelp`: "Debe ser una fecha futura, obligatoria para dominios externos."
 
 ## Desarrollo
 
@@ -294,21 +327,22 @@ Se recomienda probar al menos los siguientes escenarios:
 
 | Correo                 | Justificación | Expiración   | Resultado esperado |
 | ---------------------- | ------------- | ------------ | ------------------ |
-| `usuario@uady.mx`      | No requerida  | No requerida | Permitido          |
-| `usuario@fmat.uady.mx` | No requerida  | No requerida | Permitido          |
-| `usuario@gmail.com`    | Vacía         | Vacía        | Bloqueado          |
-| `usuario@gmail.com`    | Completa      | Vacía        | Bloqueado          |
-| `usuario@gmail.com`    | Vacía         | Futura       | Bloqueado          |
-| `usuario@gmail.com`    | Completa      | Pasada       | Bloqueado          |
-| `usuario@gmail.com`    | Completa      | Futura       | Permitido          |
+| `usuario@uady.mx`      | No requerida  | No requerida | Permitido, campos ocultos |
+| `usuario@fmat.uady.mx` | No requerida  | No requerida | Permitido, campos ocultos |
+| `usuario@gmail.com`    | Vacía         | Vacía        | Bloqueado, error en ambos campos |
+| `usuario@gmail.com`    | Completa      | Vacía        | Bloqueado, error en fecha |
+| `usuario@gmail.com`    | Vacía         | Futura       | Bloqueado, error en justificación |
+| `usuario@gmail.com`    | "Case 1"      | Futura       | Bloqueado, error en justificación |
+| `usuario@gmail.com`    | Completa      | Pasada       | Bloqueado, error en fecha |
+| `usuario@gmail.com`    | Completa      | Futura       | Permitido |
 
 ## Seguridad
 
-El plugin realiza la validación del lado del servidor mediante la API de validación de formularios de Moodle.
+El plugin realiza la validación del lado del servidor mediante la API de validación de formularios de Moodle (`user_editadvanced_form_validation`).
 
-No se debe confiar únicamente en validaciones realizadas mediante JavaScript o en el navegador.
+No se debe confiar únicamente en validaciones realizadas mediante JavaScript o en el navegador, ya que pueden ser eludidas. La lógica de servidor es la que garantiza la integridad de los datos.
 
-Los dominios autorizados deben mantenerse actualizados de acuerdo con las políticas de la institución.
+Además, el plugin fuerza la limpieza de los campos personalizados para dominios internos incluso si el cliente los ha enviado con valores, previniendo datos residuales.
 
 ## Licencia
 
