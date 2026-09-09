@@ -4,8 +4,7 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * Validate user creation/edit form data.
  *
- * External email domains require a valid justification (not the default option)
- * and an explicitly enabled future expiration date.
+ * External email domains require justification and a valid future expiration date.
  *
  * @param array $data Submitted form data.
  * @param array $files Submitted files.
@@ -17,26 +16,30 @@ function local_domainauthentication_validation($data, $files, $form) {
 
     $errors = array();
 
-    // Only apply the validation to Moodle user creation/edit forms.
-    if (!($form instanceof user_edit_form) && !($form instanceof user_profile_form)) {
-        return $errors;
+    // 1. Asegurar que estamos en un formulario de edición o creación de usuarios de Moodle.
+    $formclass = get_class($form);
+    if (strpos($formclass, 'user_edit') === false && strpos($formclass, 'user_profile') === false && !($form instanceof moodleform)) {
+        // Si no es un formulario de usuario conocido, permitimos continuar para evitar bloquear otros formularios.
+        // Pero para asegurarnos en "Add a new user", permitimos la ejecución si existe el campo 'email'.
+        if (!isset($data['email'])) {
+            return $errors;
+        }
     }
 
-    // Email is required for this validation.
+    // 2. Obtener y validar el correo electrónico.
     $email = isset($data['email']) ? trim($data['email']) : '';
     if ($email === '' || !validate_email($email)) {
         return $errors;
     }
 
-    // Extract and normalize the email domain.
+    // 3. Extraer y normalizar el dominio del correo.
     $emailparts = explode('@', core_text::strtolower($email));
     if (count($emailparts) !== 2) {
         return $errors;
     }
-
     $domain = trim($emailparts[1]);
 
-    // Authorized institutional domains.
+    // 4. Dominios institucionales autorizados.
     $authorizeddomains = array(
         'uady.mx',
         'fmat.uady.mx',
@@ -44,62 +47,71 @@ function local_domainauthentication_validation($data, $files, $form) {
         'correo.uady.mx',
     );
 
-    // Institutional domain: no additional validation is required.
+    // Si es un dominio institucional autorizado, no requiere validación adicional.
     if (in_array($domain, $authorizeddomains, true)) {
         return $errors;
     }
 
-    $justificationkey = 'profile_field_justification';
-    $expirationkey = 'profile_field_expiration_date';
+    // --- DOMINIO EXTERNO DETECTADO ---
+    // A partir de aquí, exigimos los campos obligatorios de justificación y expiración.
 
-    $justification = isset($data[$justificationkey])
-        ? trim((string)$data[$justificationkey])
-        : '';
+    // Buscamos dinámicamente las llaves de los campos personalizados (pueden venir con prefijos en Moodle)
+    $justificationkey = '';
+    $expirationkey = '';
+    $justificationval = '';
+    $expirationval = '';
+    $expiration_enabled = true; // Por defecto asumimos habilitado si no usa selector complejo
 
-    /*
-     * Validación de la justificación para dominios externos:
-     * Verificamos que no esté vacía y que no tenga el valor predeterminado inicial ("Case 1")
-     * si ese es el valor por defecto que se desea prohibir para cuentas externas.
-     */
-    if ($justification === '' || strcasecmp($justification, 'Case 1') === 0) {
+    foreach ($data as $key => $value) {
+        if (strpos($key, 'justification') !== false) {
+            $justificationkey = $key;
+            $justificationval = trim((string)$value);
+        }
+        if (strpos($key, 'expiration_date') !== false) {
+            // Evitamos capturar la bandera '_enabled' directamente como valor de fecha
+            if (strpos($key, '_enabled') === false) {
+                $expirationkey = $key;
+                $expirationval = $value;
+            } else {
+                // Si existe la bandera de habilitación del campo de fecha y está en 0/falso
+                if (empty($value)) {
+                    $expiration_enabled = false;
+                }
+            }
+        }
+    }
+
+    // Si no se encontraron por coincidencia parcial, usamos los nombres estándar predeterminados
+    if ($justificationkey === '') {
+        $justificationkey = 'profile_field_justification';
+    }
+    if ($expirationkey === '') {
+        $expirationkey = 'profile_field_expiration_date';
+    }
+
+    // Validar Justificación: No debe estar vacía ni tener el valor por defecto inicial ("Case 1")
+    $justification_current = isset($data[$justificationkey]) ? trim((string)$data[$justificationkey]) : $justificationval;
+    if ($justification_current === '' || strcasecmp($justification_current, 'Case 1') === 0 || strcasecmp($justification_current, '1') === 0) {
         $errors[$justificationkey] = get_string('externaldomainjustificationrequired', 'local_domainauthentication');
     }
 
-    /*
-     * Validación estricta para la fecha de expiración en dominios externos:
-     * Comprobamos tanto el valor del timestamp como las banderas de habilitación de Moodle.
-     */
-    $is_enabled = false;
-    $expirationtimestamp = 0;
+    // Validar Fecha de Expiración: Debe estar habilitada y ser un timestamp futuro válido
+    $expiration_current = isset($data[$expirationkey]) ? $data[$expirationkey] : $expirationval;
+    $timestamp = 0;
 
-    if (isset($data[$expirationkey]) && $data[$expirationkey] !== '' && $data[$expirationkey] !== null) {
-        $rawval = $data[$expirationkey];
-        if (is_numeric($rawval)) {
-            $expirationtimestamp = (int)$rawval;
+    if ($expiration_current !== '' && $expiration_current !== null) {
+        if (is_numeric($expiration_current)) {
+            $timestamp = (int)$expiration_current;
         } else {
-            $parsed = strtotime($rawval);
+            $parsed = strtotime($expiration_current);
             if ($parsed !== false) {
-                $expirationtimestamp = $parsed;
+                $timestamp = $parsed;
             }
         }
-        if ($expirationtimestamp > 0) {
-            $is_enabled = true;
-        }
     }
 
-    // Revisión adicional de banderas de control de fecha de Moodle (_enabled)
-    $enabled_flag_keys = array(
-        $expirationkey . '_enabled',
-        'subplugin_' . $expirationkey,
-    );
-    foreach ($enabled_flag_keys as $flag_key) {
-        if (isset($data[$flag_key]) && empty($data[$flag_key])) {
-            $is_enabled = false;
-        }
-    }
-
-    // Si el dominio es externo, se exige que la fecha esté activada (Enable marcado) y sea un valor futuro.
-    if (!$is_enabled || $expirationtimestamp <= time()) {
+    // Verificamos si la fecha es menor o igual al tiempo actual o si el selector de fecha no está activado
+    if (!$expiration_enabled || $timestamp <= time()) {
         $errors[$expirationkey] = get_string('externaldomainexpirationrequired', 'local_domainauthentication');
     }
 
