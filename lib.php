@@ -48,24 +48,11 @@ function local_domainauthentication_validation($data, $files, $form) {
         return $errors;
     }
 
-    /*
-     * External domain:
-     * Moodle custom profile fields are expected to have the shortnames
-     * "justification" and "expiration_date".
-     *
-     * The corresponding submitted form keys are normally:
-     * profile_field_justification
-     * profile_field_expiration_date
-     */
     $justificationkey = 'profile_field_justification';
     $expirationkey = 'profile_field_expiration_date';
 
     $justification = isset($data[$justificationkey])
         ? trim((string)$data[$justificationkey])
-        : '';
-
-    $expirationraw = isset($data[$expirationkey])
-        ? trim((string)$data[$expirationkey])
         : '';
 
     // Missing or empty justification blocks the save.
@@ -74,26 +61,30 @@ function local_domainauthentication_validation($data, $files, $form) {
     }
 
     /*
-     * Validate the expiration date.
-     *
-     * Moodle date fields can arrive as timestamps or date strings depending
-     * on how the custom profile field was configured/versioned.
+     * En Moodle, los elementos de fecha personalizados con selector "Enable" 
+     * envían un timestamp numérico si están habilitados. Si no se marca "Enable",
+     * el campo suele omitirse o llegar vacío.
      */
     $expirationtimestamp = 0;
+    $is_date_submitted = false;
 
-    if ($expirationraw !== '') {
-        if (is_numeric($expirationraw)) {
-            $expirationtimestamp = (int)$expirationraw;
-        } else {
-            $parsed = strtotime($expirationraw);
-            if ($parsed !== false) {
-                $expirationtimestamp = $parsed;
+    if (isset($data[$expirationkey])) {
+        $rawval = $data[$expirationkey];
+        if ($rawval !== '' && $rawval !== null) {
+            $is_date_submitted = true;
+            if (is_numeric($rawval)) {
+                $expirationtimestamp = (int)$rawval;
+            } else {
+                $parsed = strtotime($rawval);
+                if ($parsed !== false) {
+                    $expirationtimestamp = $parsed;
+                }
             }
         }
     }
 
-    // Missing, invalid, or non-future expiration date blocks the save.
-    if ($expirationtimestamp <= time()) {
+    // Si es un dominio externo, la fecha DEBE estar habilitada y ser un timestamp futuro válido.
+    if (!$is_date_submitted || $expirationtimestamp <= time()) {
         $errors[$expirationkey] = get_string('externaldomainexpirationrequired', 'local_domainauthentication');
     }
 
