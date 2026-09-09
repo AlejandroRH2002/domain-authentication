@@ -4,7 +4,8 @@ defined('MOODLE_INTERNAL') || die();
 /**
  * Validate user creation/edit form data.
  *
- * External email domains require justification and a future expiration date.
+ * External email domains require a valid justification (not the default option)
+ * and an explicitly enabled future expiration date.
  *
  * @param array $data Submitted form data.
  * @param array $files Submitted files.
@@ -55,36 +56,50 @@ function local_domainauthentication_validation($data, $files, $form) {
         ? trim((string)$data[$justificationkey])
         : '';
 
-    // Missing or empty justification blocks the save.
-    if ($justification === '') {
+    /*
+     * Validación de la justificación para dominios externos:
+     * Verificamos que no esté vacía y que no tenga el valor predeterminado inicial ("Case 1")
+     * si ese es el valor por defecto que se desea prohibir para cuentas externas.
+     */
+    if ($justification === '' || strcasecmp($justification, 'Case 1') === 0) {
         $errors[$justificationkey] = get_string('externaldomainjustificationrequired', 'local_domainauthentication');
     }
 
     /*
-     * En Moodle, los elementos de fecha personalizados con selector "Enable" 
-     * envían un timestamp numérico si están habilitados. Si no se marca "Enable",
-     * el campo suele omitirse o llegar vacío.
+     * Validación estricta para la fecha de expiración en dominios externos:
+     * Comprobamos tanto el valor del timestamp como las banderas de habilitación de Moodle.
      */
+    $is_enabled = false;
     $expirationtimestamp = 0;
-    $is_date_submitted = false;
 
-    if (isset($data[$expirationkey])) {
+    if (isset($data[$expirationkey]) && $data[$expirationkey] !== '' && $data[$expirationkey] !== null) {
         $rawval = $data[$expirationkey];
-        if ($rawval !== '' && $rawval !== null) {
-            $is_date_submitted = true;
-            if (is_numeric($rawval)) {
-                $expirationtimestamp = (int)$rawval;
-            } else {
-                $parsed = strtotime($rawval);
-                if ($parsed !== false) {
-                    $expirationtimestamp = $parsed;
-                }
+        if (is_numeric($rawval)) {
+            $expirationtimestamp = (int)$rawval;
+        } else {
+            $parsed = strtotime($rawval);
+            if ($parsed !== false) {
+                $expirationtimestamp = $parsed;
             }
+        }
+        if ($expirationtimestamp > 0) {
+            $is_enabled = true;
         }
     }
 
-    // Si es un dominio externo, la fecha DEBE estar habilitada y ser un timestamp futuro válido.
-    if (!$is_date_submitted || $expirationtimestamp <= time()) {
+    // Revisión adicional de banderas de control de fecha de Moodle (_enabled)
+    $enabled_flag_keys = array(
+        $expirationkey . '_enabled',
+        'subplugin_' . $expirationkey,
+    );
+    foreach ($enabled_flag_keys as $flag_key) {
+        if (isset($data[$flag_key]) && empty($data[$flag_key])) {
+            $is_enabled = false;
+        }
+    }
+
+    // Si el dominio es externo, se exige que la fecha esté activada (Enable marcado) y sea un valor futuro.
+    if (!$is_enabled || $expirationtimestamp <= time()) {
         $errors[$expirationkey] = get_string('externaldomainexpirationrequired', 'local_domainauthentication');
     }
 
