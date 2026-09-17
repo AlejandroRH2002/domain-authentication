@@ -37,23 +37,23 @@ function local_domainauthentication_user_editadvanced_form_definition($mform) {
 }
 
 /**
- * Validación personalizada para el formulario de creación/edición de usuarios.
- * También modifica los datos para dominios internos (limpia los campos).
+ * Valida los datos de usuario según el dominio del correo electrónico.
  *
- * @param stdClass $data Datos enviados desde el formulario (pasado por referencia).
+ * @param array|stdClass $data Datos enviados desde el formulario.
  * @param array $files Archivos subidos.
- * @param array $errors Array de errores (por referencia) donde añadir los mensajes.
+ * @param MoodleQuickForm $form Formulario que se está validando.
+ * @return array Errores indexados por el nombre del campo.
  */
-function local_domainauthentication_user_editadvanced_form_validation($data, $files, &$errors) {
+function local_domainauthentication_validation($data, $files, $form) {
     global $DB;
 
-    // Extraer dominio del email.
-    $email = trim($data->email);
-    if (empty($email)) return;
+    $errors = [];
+    $email = is_array($data) ? ($data['email'] ?? '') : ($data->email ?? '');
+    $email = trim((string)$email);
+    $email = core_text::strtolower($email);
 
-    $parts = explode('@', core_text::strtolower($email));
-    if (count($parts) !== 2) return;
-    $domain = $parts[1];
+    $parts = explode('@', $email);
+    $domain = count($parts) === 2 ? trim($parts[1]) : '';
 
     // Dominios institucionales autorizados (sin restricciones).
     $authorizeddomains = [
@@ -63,30 +63,42 @@ function local_domainauthentication_user_editadvanced_form_validation($data, $fi
         'correo.uady.mx',
     ];
 
-    // Si es dominio interno: forzar campos a vacío y salir sin validar.
-    if (in_array($domain, $authorizeddomains, true)) {
-        // Limpiar valores para que no se guarden datos residuales.
-        $data->profile_field_justification = '';
-        $data->profile_field_expiration_date = '';
-        return; // No se añaden errores.
-    }
-
-    // --- Dominio externo: validar campos personalizados ---
-    $justification = isset($data->profile_field_justification) ? trim($data->profile_field_justification) : '';
-    $expiration    = isset($data->profile_field_expiration_date) ? $data->profile_field_expiration_date : '';
-
-    // Validar justificación (no vacía y no "Case 1" ni "1").
-    if ($justification === '' || strcasecmp($justification, 'Case 1') === 0 || $justification === '1') {
-        $errors['profile_field_justification'] = get_string('errorjustification', 'local_domainauthentication');
-    }
-
-    // Validar fecha de expiración (debe ser futura).
-    if (!empty($expiration)) {
-        $timestamp = strtotime($expiration);
-        if ($timestamp === false || $timestamp <= time()) {
-            $errors['profile_field_expiration_date'] = get_string('errorexpiration', 'local_domainauthentication');
+    $isinstitutionaldomain = in_array($domain, $authorizeddomains, true);
+    if (!$isinstitutionaldomain) {
+        foreach ($authorizeddomains as $authorizeddomain) {
+            $suffix = '.' . $authorizeddomain;
+            if (strlen($domain) > strlen($suffix) && substr($domain, -strlen($suffix)) === $suffix) {
+                $isinstitutionaldomain = true;
+                break;
+            }
         }
-    } else {
-        $errors['profile_field_expiration_date'] = get_string('errorexpirationempty', 'local_domainauthentication');
     }
+
+    if ($isinstitutionaldomain) {
+        return $errors;
+    }
+
+    $justification = is_array($data)
+        ? ($data['profile_field_justification'] ?? '')
+        : ($data->profile_field_justification ?? '');
+    $expirationdate = is_array($data)
+        ? ($data['profile_field_expiration_date'] ?? '')
+        : ($data->profile_field_expiration_date ?? '');
+
+    $justification = trim((string)$justification);
+    $expirationdate = trim((string)$expirationdate);
+
+    $justificationexists = $DB->record_exists('user_info_field', ['shortname' => 'justification']);
+    $expirationexists = $DB->record_exists('user_info_field', ['shortname' => 'expiration_date']);
+
+    if (!$justificationexists || $justification === '' || strcasecmp($justification, 'Case 1') === 0 || $justification === '1') {
+        $errors['profile_field_justification'] = get_string('errorjustificationrequired', 'local_domainauthentication');
+    }
+
+    $expirationtimestamp = filter_var($expirationdate, FILTER_VALIDATE_INT);
+    if (!$expirationexists || $expirationtimestamp === false || $expirationtimestamp <= time()) {
+        $errors['profile_field_expiration_date'] = get_string('errorexpirationdaterequired', 'local_domainauthentication');
+    }
+
+    return $errors;
 }

@@ -102,7 +102,7 @@ usuario@fmat.uady.mx
 usuario@alumnos.uady.mx
 ```
 
-El usuario puede guardarse sin proporcionar información adicional. Los campos personalizados se ocultan y se limpian automáticamente. En el servidor, se forzan a vacío para eliminar cualquier dato residual.
+El usuario puede guardarse sin proporcionar información adicional. Los campos personalizados se ocultan y se limpian en el formulario cuando el dominio es institucional.
 
 ### Dominio externo
 
@@ -338,11 +338,11 @@ Se recomienda probar al menos los siguientes escenarios:
 
 ## Seguridad
 
-El plugin realiza la validación del lado del servidor mediante la API de validación de formularios de Moodle (`user_editadvanced_form_validation`).
+El plugin realiza la validación del lado del servidor mediante el callback `local_domainauthentication_validation`.
 
 No se debe confiar únicamente en validaciones realizadas mediante JavaScript o en el navegador, ya que pueden ser eludidas. La lógica de servidor es la que garantiza la integridad de los datos.
 
-Además, el plugin fuerza la limpieza de los campos personalizados para dominios internos incluso si el cliente los ha enviado con valores, previniendo datos residuales.
+La validación del servidor no depende de JavaScript y bloquea el guardado cuando un dominio externo no tiene una justificación válida o una fecha de expiración futura.
 
 ## Licencia
 

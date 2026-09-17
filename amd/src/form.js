@@ -13,12 +13,23 @@ define(['jquery', 'core/str'], function($, str) {
                 var emailInput = $('#id_email');
                 var dependentFields = $('[data-domain-dependent="1"]').closest('.fitem');
 
+                function isInstitutionalDomain(domain) {
+                    if (authorizedDomains.indexOf(domain) !== -1) {
+                        return true;
+                    }
+
+                    return authorizedDomains.some(function(authorizedDomain) {
+                        return domain.length > authorizedDomain.length &&
+                            domain.slice(-(authorizedDomain.length + 1)) === '.' + authorizedDomain;
+                    });
+                }
+
                 function toggleDependentFields() {
                     var email = emailInput.val().trim().toLowerCase();
                     var parts = email.split('@');
                     var domain = (parts.length === 2) ? parts[1] : '';
 
-                    var isExternal = (domain !== '' && authorizedDomains.indexOf(domain) === -1);
+                    var isExternal = (domain !== '' && !isInstitutionalDomain(domain));
 
                     if (isExternal) {
                         dependentFields.show();

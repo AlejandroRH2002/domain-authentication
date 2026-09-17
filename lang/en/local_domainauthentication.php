@@ -1,5 +1,8 @@
 <?php
 $string['pluginname'] = 'Domain authentication validation';
-$string['errorjustification'] = 'Justification is required and cannot be "Case 1" for external emails.';
-$string['errorexpiration'] = 'You must set a valid future expiration date.';
-$string['errorexternalvalidation'] = 'Error creating external user: {$a}';
+$string['errorjustificationrequired'] = 'Justification is required and cannot be "Case 1" for external emails.';
+$string['errorexpirationdaterequired'] = 'You must set a valid future expiration date.';
+$string['justificationhelp'] = 'Required only for external email domains.';
+$string['expirationhelp'] = 'Must be a valid future date for external email domains.';
+$string['justificationhelp_help'] = 'Required only for external email domains.';
+$string['expirationhelp_help'] = 'Must be a valid future date for external email domains.';
