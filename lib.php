@@ -2,6 +2,52 @@
 defined('MOODLE_INTERNAL') || die();
 
 /**
+ * Return the institutional email domains accepted by this plugin.
+ *
+ * @return array
+ */
+function local_domainauthentication_get_authorized_domains() {
+    return [
+        'uady.mx',
+        'fmat.uady.mx',
+        'alumnos.uady.mx',
+        'correo.uady.mx',
+    ];
+}
+
+/**
+ * Check an email domain, including subdomains, against the institutional list.
+ *
+ * @param string $domain Normalized domain.
+ * @return bool
+ */
+function local_domainauthentication_is_institutional_domain($domain) {
+    foreach (local_domainauthentication_get_authorized_domains() as $authorizeddomain) {
+        if ($domain === $authorizeddomain ||
+                (strlen($domain) > strlen($authorizeddomain) &&
+                substr($domain, -(strlen($authorizeddomain) + 1)) === '.' . $authorizeddomain)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Load the external-domain notice on standard user edit pages.
+ *
+ * @param global_navigation $navigation Navigation object.
+ * @return void
+ */
+function local_domainauthentication_extend_navigation(global_navigation $navigation) {
+    global $PAGE;
+
+    if ($PAGE->url && $PAGE->url->get_path() === '/user/editadvanced.php') {
+        $PAGE->requires->js_call_amd('local_domainauthentication/form', 'init');
+    }
+}
+
+/**
  * Modifica la definición del formulario de creación/edición de usuarios.
  * Agrega una opción vacía al select 'justification' y atributos para JS.
  *
@@ -32,7 +78,8 @@ function local_domainauthentication_user_editadvanced_form_definition($mform) {
         $mform->addHelpButton('profile_field_expiration_date', 'expirationhelp', 'local_domainauthentication');
     }
 
-    // Cargar JavaScript para comportamiento condicional.
+    // The standard navigation callback also loads this AMD module. This keeps
+    // the notice available even when no form-definition callback is installed.
     $PAGE->requires->js_call_amd('local_domainauthentication/form', 'init');
 }
 
@@ -55,26 +102,7 @@ function local_domainauthentication_validation($data, $files, $form) {
     $parts = explode('@', $email);
     $domain = count($parts) === 2 ? trim($parts[1]) : '';
 
-    // Dominios institucionales autorizados (sin restricciones).
-    $authorizeddomains = [
-        'uady.mx',
-        'fmat.uady.mx',
-        'alumnos.uady.mx',
-        'correo.uady.mx',
-    ];
-
-    $isinstitutionaldomain = in_array($domain, $authorizeddomains, true);
-    if (!$isinstitutionaldomain) {
-        foreach ($authorizeddomains as $authorizeddomain) {
-            $suffix = '.' . $authorizeddomain;
-            if (strlen($domain) > strlen($suffix) && substr($domain, -strlen($suffix)) === $suffix) {
-                $isinstitutionaldomain = true;
-                break;
-            }
-        }
-    }
-
-    if ($isinstitutionaldomain) {
+    if (local_domainauthentication_is_institutional_domain($domain)) {
         return $errors;
     }
 

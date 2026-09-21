@@ -6,3 +6,4 @@ $string['justificationhelp'] = 'Obligatoria solo para dominios de correo externo
 $string['expirationhelp'] = 'Debe ser una fecha válida y futura para dominios de correo externos.';
 $string['justificationhelp_help'] = 'Obligatoria solo para dominios de correo externos.';
 $string['expirationhelp_help'] = 'Debe ser una fecha válida y futura para dominios de correo externos.';
+$string['externaldomainnotice'] = 'Dominio de correo externo: se requieren una justificación y una fecha de expiración futura válida antes de guardar este usuario.';

@@ -9,7 +9,8 @@ El plugin permite registrar usuarios con dominios institucionales autorizados si
 * Validación del dominio del correo electrónico en el servidor.
 * Catálogo de dominios institucionales autorizados.
 * Visibilidad condicional de campos personalizados mediante JavaScript (AMD).
-* Limpieza de valores en cliente y servidor para dominios internos.
+* Limpieza de valores en cliente para dominios internos.
+* Aviso visual destacado para dominios externos.
 * Exige una justificación válida (no vacía y no "Case 1") para dominios externos.
 * Exige una fecha de expiración válida y futura para dominios externos.
 * Bloquea el guardado cuando los requisitos no se cumplen, mostrando errores asociados a cada campo.
@@ -231,10 +232,10 @@ Tipo recomendado: fecha.
 
 El flujo de validación combina lógica de cliente (JavaScript) y servidor (PHP):
 
-1. Al cargar el formulario, JavaScript comprueba el dominio del email y muestra/oculta los campos dependientes.
+1. Al cargar el formulario, JavaScript comprueba el dominio del email, muestra un aviso para dominios externos y muestra/oculta los campos dependientes.
 2. Cuando el usuario cambia el email, los campos se actualizan en tiempo real y se limpian si son ocultados.
 3. Al enviar el formulario:
-   - Si el dominio es interno, el servidor fuerza los campos a vacío y no aplica validación.
+    - Si el dominio es interno, no se aplican requisitos adicionales.
    - Si el dominio es externo, el servidor valida justificación y fecha. Si falla, se añaden errores al formulario y se detiene el guardado.
 
 El siguiente diagrama resume el flujo:
@@ -338,7 +339,10 @@ Se recomienda probar al menos los siguientes escenarios:
 
 ## Seguridad
 
-El plugin realiza la validación del lado del servidor mediante el callback `local_domainauthentication_validation`.
+El plugin contiene la validación server-side en `local_domainauthentication_validation`.
+Moodle estándar no descubre automáticamente callbacks arbitrarios con ese nombre. Para que bloquee
+el submit en una instalación sin una integración adicional, esta función debe invocarse desde el
+método `validation()` de `user_editadvanced_form` (o desde una extensión equivalente del formulario).
 
 No se debe confiar únicamente en validaciones realizadas mediante JavaScript o en el navegador, ya que pueden ser eludidas. La lógica de servidor es la que garantiza la integridad de los datos.
 
