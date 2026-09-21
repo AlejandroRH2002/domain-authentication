@@ -1,25 +1,65 @@
-# Moodle Local Domain Authentication
+# local_domainauthentication
 
-Plugin local para Moodle que controla el uso de dominios de correo electrónico en la creación y edición de usuarios, aplicando reglas de validación dinámicas y visibilidad condicional de campos personalizados.
+Plugin local de Moodle para validar dominios de correo institucionales y conservar metadatos de cuentas externas.
 
-El plugin permite registrar usuarios con dominios institucionales autorizados sin requisitos adicionales. Cuando se utiliza un dominio externo, Moodle exige una **justificación** y una **fecha de expiración futura** antes de permitir guardar al usuario. Los campos de justificación y fecha se ocultan automáticamente para dominios internos, y se limpian para evitar datos residuales.
+## Estado de la integración
 
-## Características
+Moodle 4.2, 4.3, 4.4 y 4.5 implementa la creación de usuarios mediante la clase core `user_editadvanced_form`. Su método `validation()` es invocado por el formulario antes de `get_data()` y de `user_create_user()`.
 
-* Validación del dominio del correo electrónico en el servidor.
-* Catálogo de dominios institucionales autorizados.
-* Visibilidad condicional de campos personalizados mediante JavaScript (AMD).
-* Limpieza de valores en cliente para dominios internos.
-* Aviso visual destacado para dominios externos.
-* Exige una justificación válida (no vacía y no "Case 1") para dominios externos.
-* Exige una fecha de expiración válida y futura para dominios externos.
-* Bloquea el guardado cuando los requisitos no se cumplen, mostrando errores asociados a cada campo.
-* Compatible con Moodle 4.2 y superiores.
-* Soporte para inglés y español.
+En esas versiones no existe un callback de plugins locales que permita:
 
-## Dominios autorizados
+- insertar campos propios en `user_editadvanced_form`;
+- añadir validación a su método `validation()`;
+- interceptar de forma portable la creación antes de insertar el usuario.
 
-La configuración inicial incluye los siguientes dominios considerados institucionales (sin restricciones):
+Una función arbitraria como `local_domainauthentication_validation()` no es descubierta automáticamente por Moodle. Tampoco `local_domainauthentication_user_editadvanced_form_definition()` es un callback del core. Los hooks disponibles para usuarios no proporcionan un punto equivalente y portable para bloquear la creación en las cuatro versiones solicitadas.
+
+Por este motivo, este repositorio **no afirma que el formulario estándar esté bloqueado**. La función de validación y el repositorio están preparados para una integración soportada que añada esos campos al formulario, pero dicha integración requiere una de estas opciones:
+
+1. una extensión oficial del formulario en una versión futura de Moodle;
+2. un plugin de formulario/extensión mantenido por la organización;
+3. un cambio controlado en `user_editadvanced_form` y su método `validation()` dentro del core mantenido localmente.
+
+Modificar el core no forma parte de este plugin. La validación JavaScript o un evento posterior a la creación tampoco se consideran controles de seguridad.
+
+## Flujo alternativo recomendado
+
+El plugin ofrece una página propia en `/local/domainauthentication/index.php`.
+Usa `moodleform`, exige la capacidad `local/domainauthentication:createuser` y crea
+usuarios mediante `user_create_user()`. La justificación y la fecha son elementos
+del formulario del plugin, no campos de perfil, y se validan en el servidor antes
+de insertar el usuario.
+
+La creación y el registro de metadata se ejecutan dentro de una transacción
+delegada. Si falla la creación o la escritura en `mdl_domainauthentication`, la
+transacción se revierte y no queda una cuenta parcial ni un registro huérfano.
+
+Para que este sea el único flujo operativo, los roles correspondientes deben
+perder `moodle/user:create` y recibir `local/domainauthentication:createuser`.
+Los site administrators pueden seguir accediendo al formulario core porque
+Moodle los autoriza globalmente; esa excepción requiere el parche de core o una
+política operativa explícita.
+
+## Parche controlado del formulario core
+
+Si se necesita conservar exactamente `Site administration > Users > Accounts > Add a new user`, el archivo que debe modificarse es:
+
+```text
+user/editadvanced_form.php
+```
+
+El parche debe añadir los elementos adicionales en `definition()` y llamar a
+`local_domainauthentication_validation()` desde `validation($usernew, $files)`
+antes de devolver los errores, conservando las validaciones originales de Moodle.
+La persistencia debe coordinarse en `user/editadvanced.php`, alrededor de
+`user_create_user()`, dentro de una transacción.
+
+Ese parche es mantenimiento local del core, no parte de este plugin, y debe
+reaplicarse y probarse después de cada actualización de Moodle.
+
+## Dominios
+
+Se consideran institucionales únicamente estos dominios y sus subdominios con límite de etiqueta:
 
 ```text
 uady.mx
@@ -28,328 +68,98 @@ alumnos.uady.mx
 correo.uady.mx
 ```
 
-Estos dominios se encuentran definidos en:
+Ejemplos:
 
 ```text
-lib.php
+usuario@uady.mx              institucional
+usuario@dept.uady.mx         institucional
+usuario@uady.mx.ejemplo.com  externo
+usuario@ejemplo-uady.mx     externo
 ```
 
-Dentro de:
+La comparación normaliza el correo con `trim()` y minúsculas, valida su formato y evita aceptar dominios que solo contienen el texto institucional.
+
+## Validación propia
+
+[classes/local/domain_validator.php](classes/local/domain_validator.php) contiene las reglas reutilizables. Para una integración de formulario, los datos adicionales deben tener nombres propios del plugin:
+
+```text
+domainauthentication_justification
+domainauthentication_expirationdate
+```
+
+Las cuentas externas requieren:
+
+- una justificación no vacía después de aplicar `trim()`;
+- una fecha representada como entero Unix;
+- una fecha estrictamente mayor que `time()`.
+
+`lib.php` expone la firma solicitada:
 
 ```php
-$authorizeddomains = [
-    'uady.mx',
-    'fmat.uady.mx',
-    'alumnos.uady.mx',
-    'correo.uady.mx',
-];
+local_domainauthentication_validation($data, $files, $form)
 ```
 
-Y también en el archivo JavaScript:
+Esta función devuelve errores indexados por campo, pero Moodle estándar no la invoca por nombre automáticamente.
+
+## Almacenamiento
+
+El plugin crea la tabla `mdl_domainauthentication` mediante XMLDB:
+
+- `userid`: usuario de Moodle, único y con clave foránea lógica a `user.id`;
+- `justification`: texto de la justificación;
+- `expirationdate`: timestamp Unix futuro;
+- `timecreated` y `timemodified`.
+
+La persistencia está encapsulada en [classes/local/external_account_repository.php](classes/local/external_account_repository.php). La página alternativa consume este repositorio y guarda metadata solo para dominios externos; las cuentas institucionales no generan registros.
+
+## Instalación y actualización
+
+Instalar el directorio como:
 
 ```text
-amd/src/form.js
+moodle/local/domainauthentication/
 ```
 
-Para mantener el comportamiento coherente, es necesario actualizar la lista en ambos archivos.
+Después, ejecutar la actualización de Moodle. `db/install.xml` crea la tabla para instalaciones nuevas y `db/upgrade.php` la crea para instalaciones existentes. La versión actual del plugin es `2026092101` y requiere Moodle `2022112800` o posterior.
 
-## Campos de perfil requeridos
+El código fue diseñado para las ramas 4.2, 4.3, 4.4 y 4.5, pero no se dispone de una instalación de cada versión en este workspace; por tanto, no se declara una verificación funcional runtime de esas versiones.
 
-Para los dominios externos, el plugin utiliza dos campos personalizados de usuario de Moodle.
+## Pruebas
 
-### Justificación
+Las pruebas PHPUnit están en `tests/local/`:
 
-Debe existir un campo de perfil personalizado con:
+- `domain_validator_test.php`: pruebas unitarias de dominios, correo inválido, datos vacíos/manipulados y fechas límite;
+- `external_account_repository_test.php`: pruebas de integración de base de datos para insertar, actualizar y eliminar metadatos.
+- `form_integration_test.php`: casos explícitamente omitidos porque Moodle 4.2-4.5 no ofrece el punto de extensión requerido para el formulario core.
+
+Las pruebas de permisos y bloqueo real del formulario estándar requieren una instalación Moodle con el formulario integrado. En particular, todavía no existe en estas ramas un punto soportado que permita probar y garantizar:
+
+- usuario sin permisos suficientes;
+- rechazo antes de `user_create_user()`;
+- rollback coordinado entre usuario y tabla propia;
+- rutas alternativas de creación, web services o importaciones.
+
+No se han ejecutado PHPUnit contra una instalación Moodle en este workspace y no se afirma que esas pruebas hayan pasado.
+
+## Desinstalación
+
+Antes de desinstalar, exportar `mdl_domainauthentication` si se necesitan conservar las justificaciones y fechas. La desinstalación de un plugin puede eliminar su tabla mediante `db/uninstall.php` si se añade posteriormente; este plugin no elimina datos automáticamente en una ruta posterior a la creación. Verificar la política de retención antes de eliminar la tabla.
+
+## Archivos principales
 
 ```text
-Short name: justification
+db/install.xml
+db/upgrade.php
+db/access.php
+settings.php
+index.php
+classes/form/external_user_form.php
+classes/local/domain_validator.php
+classes/local/external_account_repository.php
+lib.php
+lang/en/local_domainauthentication.php
+lang/es/local_domainauthentication.php
+tests/local/domain_validator_test.php
+tests/local/external_account_repository_test.php
 ```
-
-La clave utilizada por el formulario es:
-
-```text
-profile_field_justification
-```
-
-El campo debería ser de tipo **menú desplegable (select)**. El plugin añade automáticamente una opción vacía al inicio y establece el valor por defecto a vacío.
-
-### Fecha de expiración
-
-Debe existir un campo de perfil personalizado con:
-
-```text
-Short name: expiration_date
-```
-
-La clave utilizada por el formulario es:
-
-```text
-profile_field_expiration_date
-```
-
-El campo debería ser de tipo **fecha**.
-
-> Es importante utilizar exactamente estos *shortnames*. El nombre visible del campo puede ser diferente.
-
-## Reglas de validación
-
-### Dominio institucional
-
-Por ejemplo:
-
-```text
-usuario@uady.mx
-usuario@fmat.uady.mx
-usuario@alumnos.uady.mx
-```
-
-El usuario puede guardarse sin proporcionar información adicional. Los campos personalizados se ocultan y se limpian en el formulario cuando el dominio es institucional.
-
-### Dominio externo
-
-Por ejemplo:
-
-```text
-usuario@gmail.com
-usuario@hotmail.com
-usuario@empresa.com
-```
-
-El plugin exige:
-
-1. Una justificación no vacía y que no sea "Case 1" ni "1".
-2. Una fecha de expiración válida.
-3. La fecha de expiración debe ser posterior a la fecha y hora actuales.
-
-Si alguno de estos requisitos no se cumple, Moodle mostrará un error junto al campo correspondiente y bloqueará el guardado.
-
-## Estructura del plugin
-
-```text
-domainauthentication/
-├── version.php
-├── lib.php
-├── lang/
-│   ├── en/
-│   │   └── local_domainauthentication.php
-│   └── es/
-│       └── local_domainauthentication.php
-└── amd/
-    └── src/
-        └── form.js
-```
-
-## Información del plugin
-
-| Propiedad       | Valor                        |
-| --------------- | ---------------------------- |
-| Nombre          | Domain Authentication        |
-| Componente      | `local_domainauthentication` |
-| Versión         | `2026090902`                 |
-| Requiere Moodle | `2022112800` (Moodle 4.2)    |
-| Tipo            | Local plugin                 |
-| Licencia        | GPL v3 or later              |
-
-## Instalación
-
-### Opción 1: Desde Moodle
-
-1. Descargar el archivo ZIP del plugin.
-2. Entrar como administrador en Moodle.
-3. Ir a:
-
-```text
-Administración del sitio
-→ Plugins
-→ Instalar plugins
-```
-
-4. Subir:
-
-```text
-domainauthentication.zip
-```
-
-5. Seguir el proceso de instalación.
-6. Completar las actualizaciones de la base de datos si Moodle las solicita.
-
-### Opción 2: Instalación manual
-
-Extraer el plugin dentro de:
-
-```text
-moodle/local/
-```
-
-La estructura final debe ser:
-
-```text
-moodle/
-└── local/
-    └── domainauthentication/
-        ├── version.php
-        ├── lib.php
-        ├── lang/
-        │   ├── en/
-        │   │   └── local_domainauthentication.php
-        │   └── es/
-        │       └── local_domainauthentication.php
-        └── amd/
-            └── src/
-                └── form.js
-```
-
-Posteriormente acceder a Moodle como administrador para ejecutar la actualización del sitio (o purgar cachés).
-
-## Configuración de los campos personalizados
-
-Después de instalar el plugin, crear los campos desde:
-
-```text
-Administración del sitio
-→ Usuarios
-→ Cuentas
-→ Campos de perfil de usuario
-```
-
-Crear un campo para la justificación con:
-
-```text
-Short name: justification
-```
-
-Tipo recomendado: menú desplegable (select).
-
-Crear otro campo para la fecha con:
-
-```text
-Short name: expiration_date
-```
-
-Tipo recomendado: fecha.
-
-## Funcionamiento
-
-El flujo de validación combina lógica de cliente (JavaScript) y servidor (PHP):
-
-1. Al cargar el formulario, JavaScript comprueba el dominio del email, muestra un aviso para dominios externos y muestra/oculta los campos dependientes.
-2. Cuando el usuario cambia el email, los campos se actualizan en tiempo real y se limpian si son ocultados.
-3. Al enviar el formulario:
-    - Si el dominio es interno, no se aplican requisitos adicionales.
-   - Si el dominio es externo, el servidor valida justificación y fecha. Si falla, se añaden errores al formulario y se detiene el guardado.
-
-El siguiente diagrama resume el flujo:
-
-```text
-Usuario introduce correo
-        │
-        ▼
-JavaScript detecta dominio
-        │
-        ▼
-¿Es dominio institucional?
-       / \
-     Sí   No
-     │     │
-     │     ▼
-     │  Muestra campos
-     │  (justificación y fecha)
-     │     │
-     ▼     ▼
-Oculta y limpia  Envía formulario
-campos            │
-                  ▼
-              Validación servidor
-                  │
-          ¿Dominio externo?
-            /         \
-          Sí           No
-          │             │
-          ▼             ▼
-   Valida campos  Fuerza campos a vacío
-   (justif. y     y permite guardado
-   fecha)
-          │
-    ¿Cumple?
-     /    \
-   Sí      No
-   │        │
-   ▼        ▼
-Permite   Muestra errores
-guardado  y bloquea
-```
-
-## Mensajes de error
-
-El plugin utiliza mensajes de error específicos para cada campo, definidos en los archivos de idioma:
-
-- `errorjustification`: "La justificación es obligatoria y no puede ser 'Case 1' para correos externos."
-- `errorexpiration`: "La fecha de expiración debe ser una fecha futura."
-- `errorexpirationempty`: "Debe configurar una fecha de expiración para correos externos."
-
-También se proporcionan textos de ayuda en los campos:
-
-- `justificationhelp`: "Obligatorio solo para dominios externos."
-- `expirationhelp`: "Debe ser una fecha futura, obligatoria para dominios externos."
-
-## Desarrollo
-
-Este proyecto está pensado para ser desarrollado y probado mediante Git.
-
-Clonar el repositorio:
-
-```bash
-git clone https://github.com/USUARIO/domainauthentication.git
-```
-
-Entrar al directorio:
-
-```bash
-cd domainauthentication
-```
-
-Para realizar cambios:
-
-```bash
-git checkout -b feature/nombre-del-cambio
-```
-
-Después:
-
-```bash
-git add .
-git commit -m "Descripción del cambio"
-git push origin feature/nombre-del-cambio
-```
-
-## Pruebas recomendadas
-
-Se recomienda probar al menos los siguientes escenarios:
-
-| Correo                 | Justificación | Expiración   | Resultado esperado |
-| ---------------------- | ------------- | ------------ | ------------------ |
-| `usuario@uady.mx`      | No requerida  | No requerida | Permitido, campos ocultos |
-| `usuario@fmat.uady.mx` | No requerida  | No requerida | Permitido, campos ocultos |
-| `usuario@gmail.com`    | Vacía         | Vacía        | Bloqueado, error en ambos campos |
-| `usuario@gmail.com`    | Completa      | Vacía        | Bloqueado, error en fecha |
-| `usuario@gmail.com`    | Vacía         | Futura       | Bloqueado, error en justificación |
-| `usuario@gmail.com`    | "Case 1"      | Futura       | Bloqueado, error en justificación |
-| `usuario@gmail.com`    | Completa      | Pasada       | Bloqueado, error en fecha |
-| `usuario@gmail.com`    | Completa      | Futura       | Permitido |
-
-## Seguridad
-
-El plugin contiene la validación server-side en `local_domainauthentication_validation`.
-Moodle estándar no descubre automáticamente callbacks arbitrarios con ese nombre. Para que bloquee
-el submit en una instalación sin una integración adicional, esta función debe invocarse desde el
-método `validation()` de `user_editadvanced_form` (o desde una extensión equivalente del formulario).
-
-No se debe confiar únicamente en validaciones realizadas mediante JavaScript o en el navegador, ya que pueden ser eludidas. La lógica de servidor es la que garantiza la integridad de los datos.
-
-La validación del servidor no depende de JavaScript y bloquea el guardado cuando un dominio externo no tiene una justificación válida o una fecha de expiración futura.
-
-## Licencia
-
-Este plugin se distribuye bajo la licencia:
-
-**GNU General Public License v3 or later (GPL-3.0-or-later)**.

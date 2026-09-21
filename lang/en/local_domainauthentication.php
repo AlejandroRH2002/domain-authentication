@@ -1,9 +1,16 @@
 <?php
 $string['pluginname'] = 'Domain authentication validation';
-$string['errorjustificationrequired'] = 'Justification is required and cannot be "Case 1" for external emails.';
-$string['errorexpirationdaterequired'] = 'You must set a valid future expiration date.';
-$string['justificationhelp'] = 'Required only for external email domains.';
-$string['expirationhelp'] = 'Must be a valid future date for external email domains.';
-$string['justificationhelp_help'] = 'Required only for external email domains.';
-$string['expirationhelp_help'] = 'Must be a valid future date for external email domains.';
-$string['externaldomainnotice'] = 'External email domain: justification and a valid future expiration date are required before this user can be saved.';
+$string['errorjustificationrequired'] = 'Justification is required for external email domains.';
+$string['errorexpirationdaterequired'] = 'A valid future expiration date is required for external email domains.';
+$string['erroremailinvalid'] = 'Enter a valid email address.';
+$string['createexternaluser'] = 'Create user with domain validation';
+$string['externalrequirements'] = 'External account requirements';
+$string['externalflownotice'] = 'Use this form for controlled account creation. External domains require a justification and a future expiration date.';
+$string['justification'] = 'Justification';
+$string['justification_help'] = 'Explain why this external account is required.';
+$string['expirationdate'] = 'Expiration date';
+$string['expirationdate_help'] = 'The date must be in the future.';
+$string['userdetails'] = 'User details';
+$string['errorcreatinguser'] = 'The user could not be created. No account or metadata was saved.';
+$string['usersaved'] = 'The user was created successfully.';
+$string['domainauthentication:createuser'] = 'Create users through domain authentication';
